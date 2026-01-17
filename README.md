@@ -36,7 +36,7 @@ go-boot init
 - ✅ 安装 protoc 插件
 - ✅ 创建标准目录结构（`internal/service`, `internal/data`）
 - ✅ 生成 `main.go`（一行代码启动）
-- ✅ 创建 `protos/` 目录和示例 `ping.proto`
+- ✅ 创建 `protos/network/v1/` 目录和示例 `ping.proto`
 - ✅ 复制第三方 proto 文件到 `third_party/`
 
 ### 3. 生成 API 代码
@@ -135,17 +135,17 @@ func main() {
 
 **方式1：使用 Protobuf 生成路由（Kratos 推荐，适合复杂 API）**
 
-1. **定义 proto 文件**（在 `protos/` 目录下）：
+1. **定义 proto 文件**（在 `protos/network/v1/` 目录下）：
 
 ```protobuf
-// protos/ping.proto
+// protos/network/v1/ping.proto
 syntax = "proto3";
 
 package protos;
 
 import "google/api/annotations.proto";
 
-option go_package = "api";
+option go_package = "your-module/api/network/v1";
 
 service PingService {
   rpc Ping (PingRequest) returns (PingReply) {
@@ -168,9 +168,9 @@ go-boot api
 ```
 
 这会自动生成：
-- `api/ping.pb.go` - protobuf 消息定义
-- `api/ping_grpc.pb.go` - gRPC 服务定义
-- `api/ping_http.pb.go` - HTTP 路由定义
+- `api/network/v1/ping.pb.go` - protobuf 消息定义
+- `api/network/v1/ping_grpc.pb.go` - gRPC 服务定义
+- `api/network/v1/ping_http.pb.go` - HTTP 路由定义
 - `internal/service/ping.go` - service 实现文件（包含 `NewPingService()` 构造函数）
 
 3. **实现 service 方法**（编辑 `internal/service/ping.go`）：
@@ -180,19 +180,19 @@ package service
 
 import (
     "context"
-    "your-module/api"
+    "your-module/api/network/v1"
 )
 
 type PingService struct {
-    api.UnimplementedPingServiceServer
+    v1.UnimplementedPingServiceServer
 }
 
 func NewPingService() *PingService {
     return &PingService{}
 }
 
-func (s *PingService) Ping(ctx context.Context, req *api.PingRequest) (*api.PingReply, error) {
-    return &api.PingReply{Message: "pong"}, nil
+func (s *PingService) Ping(ctx context.Context, req *v1.PingRequest) (*v1.PingReply, error) {
+    return &v1.PingReply{Message: "pong"}, nil
 }
 ```
 
@@ -205,7 +205,7 @@ import (
     "github.com/addls/go-boot/bootstrap"
     "github.com/go-kratos/kratos/v2/transport/http"
     
-    "your-module/api"
+    "your-module/api/network/v1"
     "your-module/internal/service"
 )
 
@@ -214,7 +214,7 @@ func main() {
     pingService := service.NewPingService()
     
     // 生成 HTTP 处理器（Kratos 自动生成）
-    pingHandler := api.NewPingServiceHandler(pingService)
+    pingHandler := v1.NewPingServiceHandler(pingService)
     
     bootstrap.Run("service-user",
         bootstrap.WithHTTPRouter(func(srv *http.Server) {
@@ -228,7 +228,7 @@ func main() {
 
 **说明：**
 - `go-boot api` 会自动为每个 proto 文件生成对应的 service 文件
-- `api.NewPingServiceHandler(pingService)` 是 Kratos 自动生成的函数，返回 `http.Handler`
+- `v1.NewPingServiceHandler(pingService)` 是 Kratos 自动生成的函数，返回 `http.Handler`
 - `srv.HandlePrefix("/v1", pingHandler)` 注册所有以 `/v1` 开头的路由
 - 底座会自动应用统一响应格式和中间件
 - 可以混合使用：部分接口用 Protobuf，部分用手动路由
@@ -549,11 +549,16 @@ your-service/
 ├── config.yaml             # 配置文件（可选）
 ├── Makefile                # 临时生成，用于 make api
 ├── protos/                 # proto 源文件统一管理
-│   └── ping.proto          # 示例文件
+│   └── network/
+│       └── v1/
+│           └── ping.proto  # 示例文件
 ├── api/                    # 生成的 protobuf 代码（go-boot api 生成）
-│   ├── ping.pb.go
-│   ├── ping_grpc.pb.go
-│   └── ping_http.pb.go
+│   └── network/
+│       └── v1/
+│           ├── ping.pb.go
+│           ├── ping_grpc.pb.go
+│           ├── ping_http.pb.go
+│           └── ping_errors.pb.go
 ├── internal/
 │   ├── service/            # service 实现（go-boot api 自动生成）
 │   │   └── ping.go         # 自动生成，包含 NewPingService()
