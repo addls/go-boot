@@ -18,6 +18,7 @@ type Config struct {
 	Server     Server     `json:"server" yaml:"server"`
 	Middleware Middleware `json:"middleware" yaml:"middleware"`
 	App        App        `json:"app" yaml:"app"`
+	Log        Log        `json:"log" yaml:"log"`
 }
 
 // App 应用配置
@@ -52,6 +53,12 @@ type ServerConfig struct {
 type Middleware struct {
 	EnableMetrics bool `json:"enableMetrics" yaml:"enableMetrics"`
 	EnableTracing bool `json:"enableTracing" yaml:"enableTracing"`
+}
+
+// Log 日志配置
+type Log struct {
+	Output string `json:"output" yaml:"output"` // 日志输出位置：stdout, file, 或文件路径（默认 "logs/app.log"）
+	Level  string `json:"level" yaml:"level"`   // 日志级别：debug, info, warn, error（默认 "info"）
 }
 
 // Load 加载配置文件
@@ -93,6 +100,10 @@ func DefaultConfig() *Config {
 		},
 		App: App{
 			StopTimeout: common.DefaultStopTimeout,
+		},
+		Log: Log{
+			Output: "logs/app.log", // 默认输出到文件
+			Level:  "info",
 		},
 	}
 }

@@ -13,7 +13,7 @@ import (
 
 // go install github.com/addls/go-boot/cmd/go-boot@latest
 
-//go:embed templates
+//go:embed templates templates/.gitignore.tpl
 var templatesFS embed.FS
 
 var (

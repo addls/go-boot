@@ -1,6 +1,7 @@
 package log
 
 import (
+	"github.com/addls/go-boot/config"
 	"github.com/go-kratos/kratos/v2/log"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -12,8 +13,8 @@ type ZapLogger struct {
 }
 
 // NewKratosLogger 创建适配 kratos 的 logger
-func NewKratosLogger(service string) log.Logger {
-	zapLogger := New(service)
+func NewKratosLogger(service string, logConfig config.Log) log.Logger {
+	zapLogger := New(service, logConfig)
 	return &ZapLogger{logger: zapLogger}
 }
 
