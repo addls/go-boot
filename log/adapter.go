@@ -13,8 +13,11 @@ type ZapLogger struct {
 }
 
 // NewKratosLogger 创建适配 kratos 的 logger
+// 注意：日志文件名固定为 app.log，忽略配置中的文件名
 func NewKratosLogger(service string, logConfig config.Log) log.Logger {
-	zapLogger := New(service, logConfig)
+	appLogConfig := logConfig
+	appLogConfig.Output = "logs/app.log"
+	zapLogger := New(service, appLogConfig)
 	return &ZapLogger{logger: zapLogger}
 }
 

@@ -11,6 +11,7 @@ import (
 	"github.com/addls/go-boot/registry"
 	"github.com/addls/go-boot/response"
 	"github.com/go-kratos/kratos/v2"
+	kratosLog "github.com/go-kratos/kratos/v2/log"
 	kratosMiddleware "github.com/go-kratos/kratos/v2/middleware"
 	"github.com/go-kratos/kratos/v2/transport"
 	"github.com/go-kratos/kratos/v2/transport/grpc"
@@ -28,11 +29,14 @@ func Run(service string, opts ...Option) error {
 	// 设置全局配置
 	config.SetGlobalConfig(bootstrapConfig)
 
+	// 创建日志（中间件需要使用）
+	logger := log.NewKratosLogger(service, bootstrapConfig.Log)
+
 	// 创建中间件
-	middlewares := buildMiddlewares(bootstrapConfig.Middleware, cfg.customMiddleware)
+	middlewares := buildMiddlewares(bootstrapConfig.Middleware, cfg.customMiddleware, logger)
 
 	// 构建基础 App 选项
-	appOpts := buildBaseAppOptions(service, bootstrapConfig)
+	appOpts := buildBaseAppOptions(service, bootstrapConfig, logger)
 
 	// 配置服务注册与发现
 	appOpts, err = configureDiscovery(appOpts, bootstrapConfig.App.Discovery)
@@ -69,10 +73,10 @@ func parseOptionsAndLoadConfig(service string, opts ...Option) (*options, *confi
 
 // buildMiddlewares 构建中间件列表
 // 按照执行顺序：Recovery -> Metadata -> Tracing(可选) -> Logging -> Metrics(可选) -> 自定义中间件
-func buildMiddlewares(middlewareConfig config.Middleware, customMiddleware []kratosMiddleware.Middleware) []kratosMiddleware.Middleware {
+func buildMiddlewares(middlewareConfig config.Middleware, customMiddleware []kratosMiddleware.Middleware, logger kratosLog.Logger) []kratosMiddleware.Middleware {
 	middlewares := []kratosMiddleware.Middleware{
-		middleware.Recovery(), // 最外层：panic 恢复（必须）
-		middleware.Metadata(), // 元数据传递（必须，用于服务间通信）
+		middleware.Recovery(logger), // 最外层：panic 恢复（必须）
+		middleware.Metadata(),       // 元数据传递（必须，用于服务间通信）
 	}
 
 	// Tracing 在 Logging 之前，确保日志中包含 trace 信息
@@ -81,7 +85,7 @@ func buildMiddlewares(middlewareConfig config.Middleware, customMiddleware []kra
 	}
 
 	// Logging 必须启用
-	middlewares = append(middlewares, middleware.Logging())
+	middlewares = append(middlewares, middleware.Logging(logger))
 
 	// Metrics 在最内层，记录最终的处理结果
 	if middlewareConfig.EnableMetrics {
@@ -97,9 +101,7 @@ func buildMiddlewares(middlewareConfig config.Middleware, customMiddleware []kra
 }
 
 // buildBaseAppOptions 构建基础 App 选项
-func buildBaseAppOptions(service string, bootstrapConfig *config.Config) []kratos.Option {
-	logger := log.NewKratosLogger(service, bootstrapConfig.Log)
-
+func buildBaseAppOptions(service string, bootstrapConfig *config.Config, logger kratosLog.Logger) []kratos.Option {
 	appOpts := []kratos.Option{
 		kratos.Name(service),
 		kratos.Logger(logger),

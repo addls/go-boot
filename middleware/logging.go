@@ -11,7 +11,7 @@ import (
 )
 
 // Logging 返回一个日志中间件，记录请求和响应信息
-func Logging() middleware.Middleware {
+func Logging(logger log.Logger) middleware.Middleware {
 	return func(handler middleware.Handler) middleware.Handler {
 		return func(ctx context.Context, req interface{}) (interface{}, error) {
 			var (
@@ -30,9 +30,10 @@ func Logging() middleware.Middleware {
 				code = int(se.Code)
 				reason = se.Reason
 			}
-			logger := log.NewHelper(log.DefaultLogger)
+			// 使用传入的 logger
+			helper := log.NewHelper(logger)
 			if err != nil {
-				logger.Log(log.LevelError,
+				helper.Log(log.LevelError,
 					"kind", kind,
 					"operation", operation,
 					"code", code,
@@ -41,7 +42,7 @@ func Logging() middleware.Middleware {
 					"error", err,
 				)
 			} else {
-				logger.Log(log.LevelInfo,
+				helper.Log(log.LevelInfo,
 					"kind", kind,
 					"operation", operation,
 					"code", code,

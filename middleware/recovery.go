@@ -12,7 +12,7 @@ import (
 )
 
 // Recovery 返回一个恢复中间件，捕获 panic 并记录
-func Recovery() middleware.Middleware {
+func Recovery(logger log.Logger) middleware.Middleware {
 	return func(handler middleware.Handler) middleware.Handler {
 		return func(ctx context.Context, req interface{}) (reply interface{}, err error) {
 			defer func() {
@@ -25,8 +25,9 @@ func Recovery() middleware.Middleware {
 						kind = info.Kind().String()
 						operation = info.Operation()
 					}
-					logger := log.NewHelper(log.DefaultLogger)
-					logger.Log(log.LevelError,
+					// 使用传入的 logger
+					helper := log.NewHelper(logger)
+					helper.Log(log.LevelError,
 						"kind", kind,
 						"operation", operation,
 						"panic", r,
