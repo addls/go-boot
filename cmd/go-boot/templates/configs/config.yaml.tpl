@@ -29,7 +29,7 @@ app:
     zone: "zone-a"
 
 log:
-  output: "logs/service.log"  # 日志输出位置：stdout, stderr, 或文件路径（默认 logs/service.log）
+  output: "logs/app.log"  # 日志输出位置：stdout, stderr, 或文件路径（默认 logs/app.log）
   level: "info"           # 日志级别：debug, info, warn, error（默认 info）
 
 data:
