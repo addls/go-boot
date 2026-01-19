@@ -34,7 +34,7 @@ func Run(service string, opts ...Option) error {
 
 	// 创建日志
 	logger := log.NewKratosLogger(service)
-	
+
 	// 设置中间件
 	middlewares := middleware.DefaultWithConfig(bootstrapConfig.Middleware)
 	if len(cfg.customMiddleware) > 0 {
@@ -92,7 +92,14 @@ func Run(service string, opts ...Option) error {
 			grpcOpts = append(grpcOpts, grpc.Timeout(timeout))
 		}
 		grpcOpts = append(grpcOpts, cfg.grpcOpts...)
-		appOpts = append(appOpts, kratos.Server(grpc.NewServer(grpcOpts...)))
+		grpcSrv := grpc.NewServer(grpcOpts...)
+
+		// 在服务器创建后注册服务
+		for _, register := range cfg.grpcRegisters {
+			register(grpcSrv)
+		}
+
+		appOpts = append(appOpts, kratos.Server(grpcSrv))
 	}
 
 	// 创建 HTTP 服务器
@@ -108,7 +115,14 @@ func Run(service string, opts ...Option) error {
 			httpOpts = append(httpOpts, http.Timeout(timeout))
 		}
 		httpOpts = append(httpOpts, cfg.httpOpts...)
-		appOpts = append(appOpts, kratos.Server(http.NewServer(httpOpts...)))
+		httpSrv := http.NewServer(httpOpts...)
+
+		// 在服务器创建后注册路由
+		for _, register := range cfg.httpRegisters {
+			register(httpSrv)
+		}
+
+		appOpts = append(appOpts, kratos.Server(httpSrv))
 	}
 
 	// 添加业务代码传入的额外 App 选项

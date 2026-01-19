@@ -13,11 +13,11 @@ import (
 
 // go install github.com/addls/go-boot/cmd/go-boot@latest
 
-//go:embed templates/third_party
-var thirdPartyTemplates embed.FS
+//go:embed templates
+var templatesFS embed.FS
 
 var (
-	Version      = "v0.1.0"
+	Version      = "v0.1.3"
 	ProtoVersion = "v0.1.0"
 )
 
@@ -50,8 +50,11 @@ func runInit() {
 	// 初始化 go.mod（如果不存在）
 	initGoMod()
 
-	// 安装 go-boot 依赖
-	installGoBoot()
+	// 安装 kratos CLI
+	if !checkKratosCLI() {
+		fmt.Println("[go-boot] kratos CLI not found, installing...")
+		installKratosCLI()
+	}
 
 	// 安装 protoc 插件
 	installProtocPlugins()
@@ -59,14 +62,14 @@ func runInit() {
 	// 创建标准目录结构
 	createStandardDirs()
 
-	// 生成 main.go
-	generateMainGo()
+	// 复制 templates 目录下的所有文件到当前目录（包括 main.go）
+	copyTemplates()
 
-	// 下载第三方 proto 文件
-	downloadThirdPartyProtos()
+	// 安装 go-boot 依赖（在生成 main.go 之后，因为它会导入 go-boot）
+	installGoBoot()
 
-	// 创建 protos 目录和示例文件
-	createProtosDir()
+	// 整理依赖关系
+	runGoModTidy()
 
 	fmt.Println("[go-boot] init done")
 }
@@ -77,38 +80,71 @@ func runAPI() {
 	// 确保 api 目录存在
 	ensureDir("api")
 
-	// 临时创建 Makefile
-	makefilePath := "Makefile"
-	createTempMakefile := false
-
-	// 检查 Makefile 是否存在
-	if _, err := os.Stat(makefilePath); os.IsNotExist(err) {
-		createTempMakefile = true
-		_ = os.WriteFile(makefilePath, []byte(defaultMakefile), 0644)
-		fmt.Println("[go-boot] created temporary Makefile")
-	}
-
-	// 确保执行完后删除临时 Makefile
-	defer func() {
-		if createTempMakefile {
-			if err := os.Remove(makefilePath); err == nil {
-				fmt.Println("[go-boot] removed temporary Makefile")
-			}
-		}
-	}()
-
-	// 执行 make api
-	cmd := exec.Command("make", "api")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		fmt.Println("[go-boot] make api failed")
+	// 检查 kratos CLI 是否安装（应该在 init 时已安装）
+	if !checkKratosCLI() {
+		fmt.Println("[go-boot] error: kratos CLI not found")
+		fmt.Println("[go-boot] please run: go-boot init first, or manually install: go install github.com/go-kratos/kratos/cmd/kratos/v2@latest")
 		os.Exit(1)
 	}
 
-	// 生成 service 文件
-	generateServiceFiles()
+	// 扫描 api 目录下的所有 proto 文件
+	apiDir := "api"
+	if _, err := os.Stat(apiDir); os.IsNotExist(err) {
+		fmt.Printf("[go-boot] api directory not found\n")
+		os.Exit(1)
+	}
+
+	var protoFiles []string
+	err := filepath.Walk(apiDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() && strings.HasSuffix(path, ".proto") {
+			protoFiles = append(protoFiles, path)
+		}
+		return nil
+	})
+
+	if err != nil {
+		fmt.Printf("[go-boot] failed to scan proto files: %v\n", err)
+		os.Exit(1)
+	}
+
+	if len(protoFiles) == 0 {
+		fmt.Printf("[go-boot] no proto files found in api directory\n")
+		os.Exit(1)
+	}
+
+	// 使用 kratos proto client 生成 API 代码
+	for _, protoFile := range protoFiles {
+		fmt.Printf("[go-boot] generating api code for %s...\n", protoFile)
+		cmd := exec.Command("kratos", "proto", "client", protoFile)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+
+		if err := cmd.Run(); err != nil {
+			fmt.Printf("[go-boot] failed to generate api code for %s: %v\n", protoFile, err)
+			os.Exit(1)
+		}
+	}
+
+	fmt.Println("[go-boot] proto api code generation completed")
+
+	// 使用 kratos proto server 生成 service 代码到 internal/service
+	ensureDir("internal/service")
+	for _, protoFile := range protoFiles {
+		fmt.Printf("[go-boot] generating service code for %s...\n", protoFile)
+		cmd := exec.Command("kratos", "proto", "server", protoFile, "-t", "internal/service")
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+
+		if err := cmd.Run(); err != nil {
+			fmt.Printf("[go-boot] failed to generate service code for %s: %v\n", protoFile, err)
+			os.Exit(1)
+		}
+	}
+
+	fmt.Println("[go-boot] service code generation completed")
 }
 
 func printVersion() {
@@ -206,17 +242,32 @@ func installGoBoot() {
 	fmt.Println("[go-boot] go-boot installed successfully")
 }
 
+func runGoModTidy() {
+	fmt.Println("[go-boot] running go mod tidy...")
+	cmd := exec.Command("go", "mod", "tidy")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Printf("[go-boot] warning: failed to run go mod tidy: %v\n", err)
+		fmt.Println("[go-boot] you can manually run: go mod tidy")
+		return
+	}
+	fmt.Println("[go-boot] go mod tidy completed")
+}
+
 func installProtocPlugins() {
 	fmt.Println("[go-boot] installing protoc plugins...")
 
 	// 需要安装的插件列表
+	// 官方文档明确要求: protoc-gen-go
+	// 使用 kratos proto 命令时还需要: protoc-gen-go-grpc, protoc-gen-go-http, protoc-gen-go-errors
 	plugins := []struct {
 		name string
 		path string
 	}{
 		{"protoc-gen-go", "google.golang.org/protobuf/cmd/protoc-gen-go"},
 		{"protoc-gen-go-grpc", "google.golang.org/grpc/cmd/protoc-gen-go-grpc"},
-		{"protoc-gen-go-http", "github.com/go-kratos/kratos/cmd/protoc-gen-go-http"},
+		{"protoc-gen-go-http", "github.com/go-kratos/kratos/cmd/protoc-gen-go-http/v2"},
 		{"protoc-gen-go-errors", "github.com/go-kratos/kratos/cmd/protoc-gen-go-errors"},
 	}
 
@@ -236,13 +287,23 @@ func installProtocPlugins() {
 	fmt.Println("[go-boot] protoc plugins installation completed")
 }
 
-func generateMainGo() {
-	// 获取服务名
-	serviceName := getServiceName()
+func checkKratosCLI() bool {
+	// 使用 exec.LookPath 检查命令是否存在
+	_, err := exec.LookPath("kratos")
+	return err == nil
+}
 
-	// 生成 main.go 内容
-	mainGoContent := fmt.Sprintf(defaultMainGo, serviceName)
-	ensureFile("main.go", mainGoContent)
+func installKratosCLI() {
+	fmt.Println("[go-boot] installing kratos CLI...")
+	cmd := exec.Command("go", "install", "github.com/go-kratos/kratos/cmd/kratos/v2@latest")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Printf("[go-boot] warning: failed to install kratos CLI: %v\n", err)
+		fmt.Println("[go-boot] you can manually run: go install github.com/go-kratos/kratos/cmd/kratos/v2@latest")
+		return
+	}
+	fmt.Println("[go-boot] kratos CLI installed successfully")
 }
 
 func getModuleName() string {
@@ -313,44 +374,39 @@ func getServiceName() string {
 	return "service-user"
 }
 
-func downloadThirdPartyProtos() {
-	thirdPartyDir := "third_party"
+func copyTemplates() {
+	fmt.Println("[go-boot] copying template files...")
 
-	// 检查 third_party 目录是否已存在且有内容
-	if info, err := os.Stat(thirdPartyDir); err == nil && info.IsDir() {
-		// 检查是否已经有 google/api 目录
-		if _, err := os.Stat(filepath.Join(thirdPartyDir, "google", "api")); err == nil {
-			fmt.Printf("[go-boot] third_party already exists, skip\n")
-			return
-		}
-	}
+	moduleName := getModuleName()
 
-	fmt.Println("[go-boot] copying third party proto files...")
-
-	// 创建 third_party 目录
-	ensureDir(thirdPartyDir)
-
-	// 从嵌入的文件系统复制文件
-	if err := copyEmbeddedFiles(thirdPartyTemplates, "templates/third_party", thirdPartyDir); err != nil {
-		fmt.Printf("[go-boot] warning: failed to copy third party proto files: %v\n", err)
+	// 从嵌入的文件系统复制所有文件
+	if err := copyEmbeddedFiles(templatesFS, "templates", ".", moduleName); err != nil {
+		fmt.Printf("[go-boot] warning: failed to copy template files: %v\n", err)
 		return
 	}
 
-	fmt.Println("[go-boot] third party proto files copied successfully")
+	fmt.Println("[go-boot] template files copied successfully")
 }
 
-func copyEmbeddedFiles(embedFS embed.FS, srcDir, dstDir string) error {
+func copyEmbeddedFiles(embedFS embed.FS, srcDir, dstDir string, moduleName string) error {
 	return fs.WalkDir(embedFS, srcDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 
-		// 计算目标路径（去掉 templates/third_party 前缀）
-		relPath, err := filepath.Rel("templates/third_party", path)
+		// 计算目标路径（去掉 templates 前缀）
+		relPath, err := filepath.Rel("templates", path)
 		if err != nil {
 			return err
 		}
-		targetPath := filepath.Join(dstDir, relPath)
+
+		// 对于所有 .tpl 文件，去掉 .tpl 后缀
+		targetRelPath := relPath
+		if strings.HasSuffix(relPath, ".tpl") {
+			targetRelPath = strings.TrimSuffix(relPath, ".tpl")
+		}
+
+		targetPath := filepath.Join(dstDir, targetRelPath)
 
 		if d.IsDir() {
 			// 创建目录
@@ -373,236 +429,31 @@ func copyEmbeddedFiles(embedFS embed.FS, srcDir, dstDir string) error {
 			return fmt.Errorf("read embedded file failed: %w", err)
 		}
 
+		// 如果是模板文件（.go.tpl 或 .proto），替换模板变量
+		content := string(data)
+		if strings.HasSuffix(relPath, ".tpl") {
+			// 统计 %s 的数量，用于 fmt.Sprintf
+			count := strings.Count(content, "%s")
+			if count > 0 {
+				args := make([]interface{}, count)
+				// 所有 %s 都替换为模块名
+				for i := range args {
+					args[i] = moduleName
+				}
+				content = fmt.Sprintf(content, args...)
+			}
+		}
+
 		// 写入目标文件
-		if err := os.WriteFile(targetPath, data, 0644); err != nil {
+		if err := os.WriteFile(targetPath, []byte(content), 0644); err != nil {
 			return fmt.Errorf("write file failed: %w", err)
 		}
 
-		fmt.Printf("[go-boot] copied %s\n", relPath)
+		fmt.Printf("[go-boot] copied %s\n", targetRelPath)
 		return nil
 	})
-}
-
-// createProtosDir 创建 protos 目录和示例 ping.proto 文件
-func createProtosDir() {
-	protosDir := "protos"
-	ensureDir(protosDir)
-
-	// 创建 network/v1 子目录
-	networkV1Dir := filepath.Join(protosDir, "network", "v1")
-	ensureDir(networkV1Dir)
-
-	pingProtoPath := filepath.Join(networkV1Dir, "ping.proto")
-
-	// 获取模块名，生成正确的 go_package
-	moduleName := getModuleName()
-	goPackage := moduleName + "/api/network/v1"
-	if goPackage == "your-service/api/network/v1" {
-		// 如果模块名是默认值，使用相对路径格式
-		goPackage = "./api/network/v1"
-	}
-
-	pingProtoContent := fmt.Sprintf(defaultPingProto, goPackage)
-	ensureFile(pingProtoPath, pingProtoContent)
-}
-
-// generateServiceFiles 扫描 protos 目录下的 proto 文件，为每个文件生成对应的 service 文件
-func generateServiceFiles() {
-	fmt.Println("[go-boot] generating service files...")
-
-	protosDir := "protos"
-	if _, err := os.Stat(protosDir); os.IsNotExist(err) {
-		fmt.Printf("[go-boot] protos directory not found, skip service generation\n")
-		return
-	}
-
-	// 扫描所有 proto 文件
-	var protoFiles []string
-	err := filepath.Walk(protosDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if !info.IsDir() && strings.HasSuffix(path, ".proto") {
-			protoFiles = append(protoFiles, path)
-		}
-		return nil
-	})
-
-	if err != nil {
-		fmt.Printf("[go-boot] warning: failed to scan proto files: %v\n", err)
-		return
-	}
-
-	if len(protoFiles) == 0 {
-		fmt.Printf("[go-boot] no proto files found, skip service generation\n")
-		return
-	}
-
-	// 获取模块名
-	moduleName := getModuleName()
-
-	// 为每个 proto 文件生成对应的 service 文件
-	for _, protoFile := range protoFiles {
-		// 获取文件名（不含扩展名），例如 ping.proto -> ping
-		baseName := strings.TrimSuffix(filepath.Base(protoFile), ".proto")
-
-		// 生成 service 文件路径，例如 internal/service/ping.go
-		serviceFileName := baseName + ".go"
-		serviceFilePath := filepath.Join("internal/service", serviceFileName)
-
-		// 如果文件已存在，跳过
-		if _, err := os.Stat(serviceFilePath); err == nil {
-			fmt.Printf("[go-boot] %s already exists, skip\n", serviceFilePath)
-			continue
-		}
-
-		// 解析 proto 文件路径，确定 package 路径
-		// proto 文件在 protos/ 目录，但生成的代码在 api/ 目录
-		// 例如: protos/network/v1/network.proto -> api/network/v1/network.pb.go
-		relPath, err := filepath.Rel("protos", protoFile)
-		if err != nil {
-			relPath = filepath.Base(protoFile)
-		}
-		protoDir := filepath.Dir(relPath)
-		var packagePath string
-		if protoDir == "." {
-			// protos/ping.proto -> api/ping.pb.go，package 路径是 {moduleName}/api
-			packagePath = moduleName + "/api"
-		} else {
-			// protos/network/v1/network.proto -> api/network/v1/network.pb.go，package 路径是 {moduleName}/api/network/v1
-			packagePath = moduleName + "/api/" + protoDir
-		}
-
-		// 生成 service 名称（首字母大写），例如 ping -> Ping
-		var serviceName string
-		if len(baseName) > 0 {
-			serviceName = strings.ToUpper(baseName[:1]) + baseName[1:]
-		} else {
-			serviceName = "Service"
-		}
-
-		// 生成 service 文件内容（package 名称从 packagePath 推导）
-		content := generateServiceContent(serviceName, packagePath)
-
-		// 确保 internal/service 目录存在
-		ensureDir("internal/service")
-
-		// 写入文件
-		if err := os.WriteFile(serviceFilePath, []byte(content), 0644); err != nil {
-			fmt.Printf("[go-boot] warning: failed to generate %s: %v\n", serviceFilePath, err)
-			continue
-		}
-
-		fmt.Printf("[go-boot] generated service file: %s\n", serviceFilePath)
-	}
-}
-
-// generateServiceContent 生成 service 文件内容
-func generateServiceContent(serviceName, packagePath string) string {
-	// serviceName 是首字母大写的文件名，例如 "Ping"
-	// 结构体名称应该是 serviceName + "Service"，例如 "PingService"
-	structName := serviceName + "Service"
-	constructorName := "New" + structName
-
-	// 从 packagePath 推导 package 名称（路径的最后一部分）
-	// 例如: your-module/api/network/v1 -> v1
-	packageName := filepath.Base(packagePath)
-	if packageName == "" || packageName == "." {
-		packageName = "api"
-	}
-
-	unimplementedType := packageName + ".Unimplemented" + structName + "Server"
-
-	return fmt.Sprintf(`package service
-
-import (
-	"context"
-	"%s"
-)
-
-type %s struct {
-	%s
-	// TODO: 添加依赖项
-	// data *data.DataRepo
-}
-
-// %s 创建新的 %s 实例
-func %s() *%s {
-	return &%s{
-		// TODO: 初始化依赖项
-	}
-}
-
-// TODO: 实现 proto 中定义的 rpc 方法
-// 示例：
-// func (s *%s) Ping(ctx context.Context, req *%s.PingRequest) (*%s.PingReply, error) {
-// 	// 实现业务逻辑
-// 	return &%s.PingReply{}, nil
-// }
-`,
-		packagePath,
-		structName,
-		unimplementedType,
-		constructorName,
-		structName,
-		constructorName,
-		structName,
-		structName,
-		structName,
-		packageName,
-		packageName,
-		packageName,
-	)
 }
 
 // --------------------
 // templates
 // --------------------
-
-var defaultMakefile = `.PHONY: api
-
-api:
-	protoc \
-	  --proto_path=protos \
-	  --proto_path=third_party \
-	  --go_out=paths=source_relative:api \
-	  --go-grpc_out=paths=source_relative:api \
-	  --go-http_out=paths=source_relative:api \
-	  --go-errors_out=paths=source_relative:api \
-	  $(shell find protos -name "*.proto")
-`
-
-var defaultPingProto = `syntax = "proto3";
-
-package protos;
-
-import "google/api/annotations.proto";
-
-option go_package = "%s";
-
-// PingService 提供 ping 接口
-service PingService {
-  // Ping 健康检查接口
-  rpc Ping (PingRequest) returns (PingReply) {
-    option (google.api.http) = {
-      get: "/v1/ping"
-    };
-  }
-}
-
-message PingRequest {
-}
-
-message PingReply {
-  string message = 1;
-}
-`
-
-var defaultMainGo = `package main
-
-import "github.com/addls/go-boot/bootstrap"
-
-func main() {
-	bootstrap.Run("%s")  // 自动查找 config.yaml 或使用默认配置
-}
-`

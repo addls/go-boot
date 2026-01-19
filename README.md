@@ -217,7 +217,7 @@ func main() {
     pingHandler := v1.NewPingServiceHandler(pingService)
     
     bootstrap.Run("service-user",
-        bootstrap.WithHTTPRouter(func(srv *http.Server) {
+        bootstrap.WithHTTPOptions(func(srv *http.Server) {
             // 注册 Protobuf 生成的 HTTP 处理器
             // 路径前缀需要与 proto 中定义的 HTTP 路径一致
             srv.HandlePrefix("/v1", pingHandler)
@@ -270,7 +270,7 @@ func createUserHandler(ctx http.Context) error {
 
 func main() {
     bootstrap.Run("service-user",
-        bootstrap.WithHTTPRouter(func(srv *http.Server) {
+        bootstrap.WithHTTPOptions(func(srv *http.Server) {
             // 注册路由
             r := srv.Route("/api/v1")
             r.GET("/users/{id}", getUserHandler)
@@ -299,7 +299,7 @@ import (
 
 func main() {
     bootstrap.Run("service-user",
-        bootstrap.WithHTTPRouter(func(srv *http.Server) {
+        bootstrap.WithHTTPOptions(func(srv *http.Server) {
             // 使用 Handle 注册标准处理器
             srv.Handle("/health", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
                 w.WriteHeader(200)
@@ -587,8 +587,7 @@ func Run(service string, opts ...Option) error
 | `WithConfig(cfg)` | 直接传入配置（覆写文件配置） |
 | `WithMiddleware(...)` | 添加自定义中间件 |
 | `WithGRPCOptions(...)` | 额外的 gRPC 服务器选项 |
-| `WithHTTPOptions(...)` | 额外的 HTTP 服务器选项 |
-| `WithHTTPRouter(fn)` | 注册 HTTP 路由（推荐） |
+| `WithHTTPOptions(...)` | 额外的 HTTP 服务器选项（可用于注册路由） |
 | `WithAppOptions(...)` | 额外的 Kratos App 选项（生命周期钩子等） |
 
 ## License

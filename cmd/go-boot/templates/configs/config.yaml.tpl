@@ -25,7 +25,7 @@ app:
     timeout: "5s"       # 连接超时时间（可选）
   # 服务元数据（可选，用于服务注册时的标签）
   metadata:
-    env: "prod"
+    env: "dev"
     zone: "zone-a"
 data:
   database:

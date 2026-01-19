@@ -16,6 +16,8 @@ type options struct {
 	config           *config.Config
 	grpcOpts         []grpc.ServerOption
 	httpOpts         []http.ServerOption
+	httpRegisters    []func(*http.Server) // HTTP 路由注册函数（在服务器创建后调用）
+	grpcRegisters    []func(*grpc.Server) // gRPC 服务注册函数（在服务器创建后调用）
 	customMiddleware []middleware.Middleware
 	appOpts          []kratos.Option
 }
@@ -48,10 +50,20 @@ func WithHTTPOptions(opts ...http.ServerOption) Option {
 	}
 }
 
-// WithHTTPRouter 注册 HTTP 路由（推荐方式）
-// 这是业务代码注册路由的便捷方法，内部通过 WithHTTPOptions 实现
-func WithHTTPRouter(fn func(*http.Server)) Option {
-	return WithHTTPOptions(fn)
+// WithHTTPRegister 注册 HTTP 路由（在服务器创建后调用）
+// 推荐使用此方法注册路由，比 WithHTTPOptions 更明确
+func WithHTTPRegister(fn func(*http.Server)) Option {
+	return func(o *options) {
+		o.httpRegisters = append(o.httpRegisters, fn)
+	}
+}
+
+// WithGRPCRegister 注册 gRPC 服务（在服务器创建后调用）
+// 推荐使用此方法注册服务，比 WithGRPCOptions 更明确
+func WithGRPCRegister(fn func(*grpc.Server)) Option {
+	return func(o *options) {
+		o.grpcRegisters = append(o.grpcRegisters, fn)
+	}
 }
 
 // WithMiddleware 添加自定义中间件
