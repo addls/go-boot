@@ -330,11 +330,12 @@ func main() {
 配置文件 (config.yaml):
 ```yaml
 app:
-  registry:
-    type: "etcd"        # 注册中心类型：etcd 或 consul（nacos 等后续支持）
+  discovery:
+    type: "etcd"          # 注册中心类型：etcd 或 consul（nacos 等后续支持）
+    register: true        # 是否开启服务注册；只做服务发现可以为 false
     endpoints:
       - "127.0.0.1:2379"  # etcd 支持多个地址，consul 通常只需要一个
-    timeout: "5s"       # 连接超时（可选）
+    timeout: "5s"         # 连接/注册超时（可选）
   metadata:
     env: "prod"         # 服务标签，用于服务发现过滤
     zone: "zone-a"
@@ -343,8 +344,9 @@ app:
 **Consul 配置示例：**
 ```yaml
 app:
-  registry:
+  discovery:
     type: "consul"
+    register: true
     endpoints:
       - "127.0.0.1:8500"  # consul 默认端口 8500
     timeout: "5s"
@@ -389,7 +391,6 @@ func main() {
    - `WithConfigFile()` 指定的路径
    - `./config.yaml`
    - `./configs/config.yaml`
-   - `/etc/{service}/config.yaml`
    - 默认配置
 2. 如果使用了 `WithConfig()`，用传入的配置覆写文件配置中的对应字段
 
@@ -416,9 +417,10 @@ func main() {
 |--------|------|--------|
 | `app.version` | 应用版本 | `v1.0.0` |
 | `app.stopTimeout` | 优雅关闭超时（如 "10s", "30s"） | `10s` |
-| `app.registry.type` | 注册中心类型（etcd、consul，nacos 等后续支持） | 无（不启用） |
-| `app.registry.endpoints` | 注册中心地址列表 | 无 |
-| `app.registry.timeout` | 注册超时时间 | 无 |
+| `app.discovery.type` | 注册中心类型（etcd、consul，nacos 等后续支持） | 无（不启用） |
+| `app.discovery.register` | 是否开启服务注册（只做服务发现时可为 false） | `false` |
+| `app.discovery.endpoints` | 注册中心地址列表 | 无 |
+| `app.discovery.timeout` | 注册/发现超时时间 | 无 |
 | `app.metadata` | 服务元数据（用于服务注册时的标签，如 env、zone 等） | 无 |
 
 > **Metadata 说明**：
@@ -511,10 +513,12 @@ func createUserHandler(ctx http.Context) error {
 ```
 github.com/addls/go-boot/
 ├── go.mod
-├── config.yaml.example     # 配置文件示例
 ├── bootstrap/              # 统一启动器
-│   ├── app.go
-│   └── options.go
+│   ├── app.go              # 对外暴露 Run 接口
+│   ├── options.go          # 启动参数 Option 定义
+│   ├── providers.go        # Wire Provider 集合与具体 Provider
+│   ├── wire.go             # Wire 声明文件（开发环境使用）
+│   └── wire_gen.go         # Wire 生成的依赖注入代码（自动生成）
 ├── config/                 # 统一配置
 │   └── config.go
 ├── common/                 # 通用组件（常量等）
@@ -526,16 +530,16 @@ github.com/addls/go-boot/
 │   ├── response.go
 │   └── encoder.go
 ├── middleware/             # 统一中间件
-│   ├── middleware.go
-│   ├── config.go
-│   ├── recovery.go
-│   ├── metadata.go
-│   ├── logging.go
-│   ├── tracing.go
-│   └── metrics.go
-├── registry/              # 服务注册与发现
-│   └── registry.go
-├── cmd/go-boot/           # CLI 工具
+│   ├── recovery.go         # panic 恢复
+│   ├── metadata.go         # 元数据传递
+│   ├── logging.go          # 统一日志
+│   ├── tracing.go          # 链路追踪
+│   └── metrics.go          # 指标采集
+├── registry/               # 服务注册与发现
+│   ├── registry.go
+│   ├── etcd/               # etcd 实现
+│   └── consul/             # consul 实现
+├── cmd/go-boot/            # CLI 工具
 │   └── main.go
 └── README.md
 ```

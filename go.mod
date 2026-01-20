@@ -7,6 +7,7 @@ require (
 	github.com/go-kratos/kratos/contrib/registry/consul/v2 v2.0.0-20260105075216-c7a58ff59f80
 	github.com/go-kratos/kratos/contrib/registry/etcd/v2 v2.0.0-20260105075216-c7a58ff59f80
 	github.com/go-kratos/kratos/v2 v2.9.2
+	github.com/google/wire v0.7.0
 	github.com/hashicorp/consul/api v1.33.2
 	go.etcd.io/etcd/client/v3 v3.6.7
 	go.uber.org/zap v1.27.0
